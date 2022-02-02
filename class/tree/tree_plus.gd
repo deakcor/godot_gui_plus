@@ -6,7 +6,7 @@ extends Tree
 class_name TreePlus
 
 signal drag_tree_items()
-signal drop_tree_items(items,to_item,position)
+signal drop_tree_items(tree_items,to_tree_item,shift)
 signal selection_updated()
 signal show_menu(menu,rect)
 
@@ -34,6 +34,8 @@ export var reselect_by_metadata:bool =true
 export var deselect_when_click_nothing:bool = true
 
 export var modulate_icon_color:Color = Color.blue
+
+export var shortcut_select_all:ShortCut
 
 var selected_items:=[]
 
@@ -91,32 +93,36 @@ func clear():
 	selected_items.clear()
 	.clear()
 
-func get_item_children(parent_item:=get_root())-> Array:
+func get_item_children(parent_item:TreeItem=null)-> Array:
 	var items:=[]
-	if parent_item!=null:
+	if parent_item==null:
+		parent_item=get_root()
+	if parent_item is TreeItem:
 		var item:TreeItem = parent_item.get_children()
 		while item != null:
 			items.push_back(item)
 			item=item.get_next()
 	return items
 
-func get_all_items(from_item:=get_root()):
+func get_all_items(from_item:TreeItem=null):
 	var items:=[]
-	if from_item!=null:
-		items.push_back(from_item)
+	if from_item==null:
+		from_item=get_root()
+		if from_item is TreeItem:
+			items.push_back(from_item)
+	if from_item is TreeItem:
 		for k in get_item_children(from_item):
+			items.push_back(k)
 			items+=get_all_items(k)
 	return items
 
-func toggle_collapse_all(from_item:=get_root()):
-	from_item.collapsed=!from_item.collapsed
-	for k in get_all_items(from_item):
-		k.collapsed=from_item.collapsed
-
-
-func toggle_collapse_selected():
-	for k in _selected_items_without_children():
-		toggle_collapse_all(k)
+func toggle_collapse_items(items:Array):
+	if !items.empty():
+		var from_item=items.front()
+		if from_item is TreeItem:
+			from_item.collapsed=!from_item.collapsed
+			for k in items:
+				k.collapsed=from_item.collapsed
 
 func select(item,column):
 	if is_instance_valid(item):
@@ -181,51 +187,46 @@ func finish_init(new_search_text:String="",custom_filters=null,additional_select
 			for column in columns:
 				for k in item.get_button_count(column):
 					item.set_button_visible(column,k,item.is_button_toggled(column,k))
-	apply_filter(new_search_text,custom_filters)
+	_apply_filter(get_root(),new_search_text,custom_filters)
 
+#override this to make custom metadata check
 func _custom_metadata_check(a,b):
 	return false
-	
+
+#override this to make custom filter
+func _apply_custom_filter(item:TreeItem,column:int,custom_filters)->bool:
+	return true
 
 func get_selected_items_by_pos(without_children:=false)->Array:
-	var new_selected_items:Array=_selected_items_without_children() if without_children else selected_items
+	var new_selected_items:Array=get_items_without_children(selected_items) if without_children else selected_items
 	new_selected_items.sort_custom(self,"_sort_by_pos")
 	return new_selected_items
 
-func get_selected_items_metadata_by_column(column:int,without_children:=false)->Array:
-	var tmp:=[]
-	var new_selected_items:Array=_selected_items_without_children() if without_children else selected_items
-	for i in new_selected_items:
-		var m=i.get_metadata(column)
-		if m!=null and i.is_selected(column):
-			tmp.push_back(m)
+func get_all_parent_items(from_item:TreeItem)->Array:
+	var res:=[]
+	var tmp:TreeItem=from_item
+	while tmp is TreeItem:
+		tmp=tmp.get_parent()
+		if tmp is TreeItem:
+			res.push_back(tmp)
+	return res
+
+func get_items_without_children(items:Array)->Array:
+	var tmp:=items.duplicate()
+	for n in tmp:
+		for k in get_all_items(n):
+			if k in tmp:
+				tmp.erase(k)
 	return tmp
 
-func get_selected_items_metadata(without_children:=false)->Array:
+func get_items_by_metadata(metadata)->Array:
 	var tmp:=[]
-	var new_selected_items:Array=_selected_items_without_children() if without_children else selected_items
-	for i in new_selected_items:
-		for column in columns:
-			var m=i.get_metadata(column)
-			if m!=null and i.is_selected(column):
-				tmp.push_back(m)
-	return tmp
-
-func _selected_items_without_children()->Array:
-	var new_selected_items:=selected_items.duplicate()
-	for n in new_selected_items:
-		for k in get_item_children(n):
-			if k in selected_items:
-				new_selected_items.erase(k)
-	return new_selected_items
-
-func get_items_metadata(items:Array)->Array:
-	var tmp:=[]
-	for i in items:
-		for column in columns:
-			var m=i.get_metadata(column)
-			if m!=null:
-				tmp.push_back(m)
+	if metadata:
+		for i in get_all_items():
+			for column in columns:
+				var m=i.get_metadata(column)
+				if m==metadata:
+					tmp.push_back(i)
 	return tmp
 
 func get_last_selected()->TreeItem:
@@ -235,27 +236,6 @@ func get_last_selected()->TreeItem:
 		if is_instance_valid(selected_items.back()):
 			return selected_items.back()
 	return null
-
-func get_last_selected_item_metadata():
-	var last_selected:=get_last_selected()
-	if last_selected:
-		if last_selected.is_selected(last_hover_column) and last_selected.get_metadata(last_hover_column):
-			return last_selected.get_metadata(last_hover_column)
-		else:
-			for column in columns:
-				var m=last_selected.get_metadata(column)
-				if m!=null and last_selected.is_selected(column):
-					return m
-	return null
-	
-func create_item(parent:Object=null,idx:int=-1)->TreeItem:
-	var item:=.create_item(parent,idx)
-	return item
-
-func apply_filter(new_search_text:String,custom_filters=null):
-	_apply_filter(get_root(),new_search_text,custom_filters)
-
-
 
 #private
 
@@ -296,9 +276,6 @@ func _apply_filter(item:TreeItem,new_search_text:String,custom_filters,parent:Tr
 			selected_items.erase(item)
 			item.free()
 	return is_pass_filter and is_pass_search
-
-func _apply_custom_filter(item:TreeItem,column:int,custom_filters)->bool:
-	return true
 
 func _ready():
 	connect("gui_input",self,"_gui_input")
@@ -387,7 +364,7 @@ func _item_collapsed(item:TreeItem):
 		call_deferred("_update_icon_color",tree_item)
 
 func _gui_input(event):
-	if select_mode==Tree.SELECT_MULTI and event.is_action_pressed("select_all"):
+	if select_mode==Tree.SELECT_MULTI and shortcut_select_all.is_shortcut(event):
 		if has_focus():
 			select_all()
 	if event is InputEventMouseButton:
@@ -398,6 +375,8 @@ func _gui_input(event):
 		if event.button_index == BUTTON_RIGHT:
 			if get_item_at_position(event.position) == null:
 				emit_signal("nothing_selected")
+				emit_signal("item_rmb_selected",event.position)
+			elif !allow_rmb_select:
 				emit_signal("item_rmb_selected",event.position)
 	if event is InputEventMouseMotion:
 		var item := get_item_at_position(event.position)
@@ -464,5 +443,5 @@ func drop_data(position, data): # end drag
 		to_item = get_item_at_position(position)
 	if shift>0:
 		items.invert()
-	emit_signal('drop_tree_item', items, to_item, shift)
+	emit_signal('drop_tree_items', items, to_item, shift)
 	set_drop_mode_flags(DROP_MODE_DISABLED)
