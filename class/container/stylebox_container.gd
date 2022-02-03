@@ -1,22 +1,23 @@
-class_name MultiStyleboxContainer
+class_name StyleboxContainer
 
 # Used to fit styleboxes together by changing border radius
 
 var cont:Control
 
-var outside_border_radius := 5
-var inside_border_radius := 0
+var outside_corner_radius := 5
+var inside_corner_radius := 0
+var outside_corner_from_parent := true
 
 var exception := []
 
 func init_children():
 	for new_child in cont.get_children():
 		_init_child(new_child)
-	_update_styleboxs()
+	_update_styleboxes()
 
 func init_child(new_child:Node):
 	_init_child(new_child)
-	_update_styleboxs()
+	_update_styleboxes()
 
 #private
 
@@ -43,26 +44,38 @@ func _get_child_styleboxes(child:Control)->Dictionary:
 			tmp[k.name]=stylebox
 	return tmp
 
-func _update_styleboxs():
+func _update_styleboxes():
+	var parent:Control=cont.get_parent()
 	for new_child in cont.get_children():
 		if new_child is Control and new_child.visible:
 			for stylebox in _get_child_styleboxes(new_child).values():
-				stylebox.corner_radius_bottom_left=outside_border_radius
-				stylebox.corner_radius_bottom_right=outside_border_radius
-				stylebox.corner_radius_top_left=outside_border_radius
-				stylebox.corner_radius_top_right=outside_border_radius
-				if new_child.get_index()>_get_first_index_visible():
-					if cont is HBoxContainer:
-						stylebox.corner_radius_bottom_left=inside_border_radius
-					elif cont is VBoxContainer:
-						stylebox.corner_radius_top_right=inside_border_radius
-					stylebox.corner_radius_top_left=inside_border_radius
-				if new_child.get_index()<_get_last_index_visible():
-					stylebox.corner_radius_bottom_right=inside_border_radius
-					if cont is HBoxContainer:
-						stylebox.corner_radius_top_right=inside_border_radius
-					elif cont is VBoxContainer:
-						stylebox.corner_radius_bottom_left=inside_border_radius
+				if outside_corner_from_parent and parent.get("multi_stylebox_cont"):
+					parent.get("multi_stylebox_cont")._update_stylebox(cont,stylebox)
+					_update_stylebox(new_child,stylebox,false)
+				else:
+					_update_stylebox(new_child,stylebox)
+
+func _update_stylebox(from,stylebox,reset:=true):
+	if reset:
+		stylebox.corner_radius_bottom_left=outside_corner_radius
+		stylebox.corner_radius_bottom_right=outside_corner_radius
+		stylebox.corner_radius_top_left=outside_corner_radius
+		stylebox.corner_radius_top_right=outside_corner_radius
+	if from.get_index()>_get_first_index_visible():
+		if cont is HBoxContainer:
+			stylebox.corner_radius_bottom_left=inside_corner_radius
+		elif cont is VBoxContainer:
+			stylebox.corner_radius_top_right=inside_corner_radius
+		
+		stylebox.corner_radius_top_left=inside_corner_radius
+	if from.get_index()<_get_last_index_visible():
+		stylebox.corner_radius_bottom_right=inside_corner_radius
+		if cont is HBoxContainer:
+			stylebox.corner_radius_top_right=inside_corner_radius
+		elif cont is VBoxContainer:
+			stylebox.corner_radius_bottom_left=inside_corner_radius
+
+
 func _get_first_index_visible()->int:
 	for new_child in cont.get_children():
 		if new_child is Control and new_child.visible:

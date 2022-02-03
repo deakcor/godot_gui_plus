@@ -1,4 +1,3 @@
-tool
 extends Tree
 
 # tree with more functionalities
@@ -11,8 +10,6 @@ signal selection_updated()
 signal show_menu(menu,rect)
 
 export var default_drop_mode:int = Tree.DROP_MODE_INBETWEEN
-
-export var show_buttons_only_selected :bool =false
 
 export var search_parent_show_children :bool = false
 export var search_children_show_parent :bool = true
@@ -33,7 +30,7 @@ export var reselect_by_metadata:bool =true
 
 export var deselect_when_click_nothing:bool = true
 
-export var modulate_icon_color:Color = Color.blue
+export var modulate_icon_color:Color = Color("699ce8")
 
 export var shortcut_select_all:ShortCut
 
@@ -53,6 +50,7 @@ class TreeitemData:
 	var selected := []
 	var checked := []
 	var metadata := []
+	var collapsed := false
 	func is_selected(column:int):
 		return array_value(selected,column)
 	func is_checked(column:int):
@@ -79,12 +77,16 @@ func clear():
 		var relevant:=false
 		if item in selected_items:
 			relevant=true
+		elif item.collapsed:
+			relevant=true
 		else:
 			for k in columns:
 				if item.is_checked(k):
 					relevant=true
+			
 		if relevant:
 			var tmp:=TreeitemData.new()
+			tmp.collapsed=item.collapsed
 			for k in columns:
 				tmp.selected.push_back(item.is_selected(k))
 				tmp.checked.push_back(item.is_checked(k))
@@ -116,13 +118,11 @@ func get_all_items(from_item:TreeItem=null):
 			items+=get_all_items(k)
 	return items
 
-func toggle_collapse_items(items:Array):
-	if !items.empty():
-		var from_item=items.front()
-		if from_item is TreeItem:
-			from_item.collapsed=!from_item.collapsed
-			for k in items:
-				k.collapsed=from_item.collapsed
+func toggle_collapse_all(from_item:TreeItem):
+	if from_item is TreeItem:
+		from_item.collapsed=!from_item.collapsed
+		for k in get_all_items(from_item):
+			k.collapsed=from_item.collapsed
 
 func select(item,column):
 	if is_instance_valid(item):
@@ -171,6 +171,7 @@ func finish_init(new_search_text:String="",custom_filters=null,additional_select
 					if !valid:
 						valid=_custom_metadata_check(item.get_metadata(i),k.get_metadata(i))
 					if valid:
+						item.collapsed=k.collapsed
 						item.set_checked(i,k.is_checked(i))
 						if k.is_selected(i):
 							select(item,i)
@@ -183,10 +184,7 @@ func finish_init(new_search_text:String="",custom_filters=null,additional_select
 						valid=_custom_metadata_check(item.get_metadata(i),k)
 					if valid:
 						select(item,i)
-		if show_buttons_only_selected:
-			for column in columns:
-				for k in item.get_button_count(column):
-					item.set_button_visible(column,k,item.is_button_toggled(column,k))
+		
 	_apply_filter(get_root(),new_search_text,custom_filters)
 
 #override this to make custom metadata check
@@ -279,7 +277,6 @@ func _apply_filter(item:TreeItem,new_search_text:String,custom_filters,parent:Tr
 
 func _ready():
 	connect("gui_input",self,"_gui_input")
-	connect("mouse_exited",self,"_mouse_exited")
 	connect("multi_selected",self,"_multi_selected")
 	connect("item_selected",self,"_item_selected")
 	connect("button_pressed",self,"_item_button_pressed")
@@ -306,13 +303,6 @@ func _show_menu(position:Vector2):
 		if popup_menu_display:
 			menu.popup(Rect2(position,Vector2.ONE))
 		emit_signal("show_menu",menu,Rect2(position,Vector2.ONE))
-func _item_button_pressed(item:TreeItem,column:int,id:int):
-	if item and item.is_button_toggle_mode(column,id):
-		for k in selected_items if item in selected_items else [item]:
-			if k.is_button_toggle_mode(column,id):
-				k.set_button_toggled(column,id,item.is_button_toggled(column,id))
-#			if change_color_button:
-#				k.set_button_color(column,id,Global.color_modulate_accent if k.is_button_toggled(column,id) else Color(1,1,1,0.5))
 
 func _sort_by_pos(a:TreeItem,b:TreeItem):
 	return get_item_area_rect(a).position.y<get_item_area_rect(b).position.y
@@ -343,9 +333,6 @@ func _multi_selected(item: TreeItem, column: int, selected: bool):
 			if valid:
 				selected_items.erase(item)
 			call_deferred("_update_icon_color",item)
-		if show_buttons_only_selected:
-			for k in item.get_button_count(column):
-				item.set_button_visible(column,k,selected or item.is_button_toggled(column,k))
 	emit_signal("selection_updated",old_selected_items)
 
 func _item_selected():
@@ -382,24 +369,9 @@ func _gui_input(event):
 		var item := get_item_at_position(event.position)
 		var column := get_column_at_position(event.position)
 		if item!=last_hover_item or last_hover_column!=column :
-			if show_buttons_only_selected:
-				if is_instance_valid(last_hover_item) and !last_hover_item.is_selected(last_hover_column):
-					for k in last_hover_item.get_button_count(last_hover_column):
-						if !last_hover_item.is_button_toggled(last_hover_column,k):
-							last_hover_item.set_button_visible(last_hover_column,k,false)
-					
-				if item:
-					for k in item.get_button_count(column):
-						item.set_button_visible(column,k,true)
+			
 			last_hover_item=item
 			last_hover_column=column
-
-func _mouse_exited():
-	if show_buttons_only_selected:
-		if last_hover_item and is_instance_valid(last_hover_item) and !last_hover_item.is_selected(last_hover_column):
-			for k in last_hover_item.get_button_count(last_hover_column):
-				if !last_hover_item.is_button_toggled(last_hover_column,k):
-					last_hover_item.set_button_visible(last_hover_column,k,false)
 
 func _update_icon_color(tree_item:TreeItem):
 	if tree_item and is_instance_valid(tree_item):
